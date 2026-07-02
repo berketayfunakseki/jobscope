@@ -2,7 +2,7 @@ import os
 import requests
 from dotenv import load_dotenv
 from sqlalchemy.orm import Session
-
+from urllib.parse import urlsplit
 from src.models import JobListing
 
 load_dotenv()
@@ -71,15 +71,26 @@ def fetch_adzuna_jobs(keyword: str = "python developer", results: int = 20) -> l
     return jobs
 
 
+def _normalize_url(url: str) -> str:
+    """Query string'i atip URL'i karsilastirma icin sadelestir."""
+    parts = urlsplit(url)
+    return f"{parts.scheme}://{parts.netloc}{parts.path}"
+
+
 def save_jobs_to_db(jobs: list[dict], db: Session) -> int:
-    """Yeni ilanlari veritabanina kaydet, zaten var olanlari atla (url unique)."""
+    """Yeni ilanlari veritabanina kaydet, zaten var olanlari (normalize url ile) atla."""
     saved_count = 0
     for job_data in jobs:
         if not job_data.get("url"):
             continue
-        existing = db.query(JobListing).filter(JobListing.url == job_data["url"]).first()
+
+        normalized = _normalize_url(job_data["url"])
+        existing = db.query(JobListing).filter(
+            JobListing.url.like(f"{normalized}%")
+        ).first()
         if existing:
             continue
+
         new_job = JobListing(**job_data)
         db.add(new_job)
         saved_count += 1
