@@ -4,8 +4,9 @@ from sqlalchemy.orm import Session
 from pydantic import BaseModel, EmailStr
 
 from src.database import Base, engine, get_db
-from src.models import User
+from src.models import User, JobListing
 from src.auth import hash_password, verify_password, create_access_token, decode_access_token
+from src.scraper import fetch_remoteok_jobs, fetch_adzuna_jobs, save_jobs_to_db
 
 Base.metadata.create_all(bind=engine)
 
@@ -69,3 +70,35 @@ def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(
 @app.get("/me", response_model=UserOut)
 def read_me(current_user: User = Depends(get_current_user)):
     return current_user
+class JobOut(BaseModel):
+    id: int
+    title: str
+    company: str
+    location: str | None
+    source: str
+    url: str
+    applied: bool
+
+    class Config:
+        from_attributes = True
+
+
+@app.post("/jobs/fetch")
+def fetch_jobs(keyword: str = "python", current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    remoteok_jobs = fetch_remoteok_jobs(keyword=keyword)
+    adzuna_jobs = fetch_adzuna_jobs(keyword=keyword)
+
+    all_jobs = remoteok_jobs + adzuna_jobs
+    saved = save_jobs_to_db(all_jobs, db)
+
+    return {
+        "fetched_total": len(all_jobs),
+        "new_saved": saved,
+        "remoteok_count": len(remoteok_jobs),
+        "adzuna_count": len(adzuna_jobs),
+    }
+
+
+@app.get("/jobs", response_model=list[JobOut])
+def list_jobs(current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    return db.query(JobListing).order_by(JobListing.scraped_at.desc()).all()
