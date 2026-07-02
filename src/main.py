@@ -7,6 +7,7 @@ from src.database import Base, engine, get_db
 from src.models import User, JobListing
 from src.auth import hash_password, verify_password, create_access_token, decode_access_token
 from src.scraper import fetch_remoteok_jobs, fetch_adzuna_jobs, save_jobs_to_db
+from src.scoring import score_all_jobs
 
 Base.metadata.create_all(bind=engine)
 
@@ -102,3 +103,15 @@ def fetch_jobs(keyword: str = "python", current_user: User = Depends(get_current
 @app.get("/jobs", response_model=list[JobOut])
 def list_jobs(current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     return db.query(JobListing).order_by(JobListing.scraped_at.desc()).all()
+
+@app.post("/jobs/score")
+def score_jobs(current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    jobs = db.query(JobListing).all()
+    scored_jobs = score_all_jobs(jobs)
+    db.commit()
+
+    top_5 = [
+        {"title": j.title, "company": j.company, "score": j.score}
+        for j in scored_jobs[:5]
+    ]
+    return {"scored_count": len(scored_jobs), "top_5": top_5}
